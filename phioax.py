@@ -11,7 +11,7 @@ def eml_grabber(pth):
             fileName=os.path.split(f.name)[-1]
             return eml,fileName
     except FileNotFoundError:
-        print("the file you specified doesn't exit !!!")
+        print("the file you specified doesn't exist !!!")
         exit(1)
     except Exception as e:
         print("an error {} occured while reading the file !!!".format(e))
