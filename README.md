@@ -1,0 +1,49 @@
+# phioax
+If you would ask any security analyst or infosec engineer about phishing emails, he/she with no hesittation will tell you it's very common that phishing emails (especially the well deigned ones) do manage to evade email gateways and security controls, hence they usually get calls about suspicious emails received and asked to validate those emails.\
+Manulally extracting all the email artificats take time and some of them could be missed. So I wrote this python script to automate the extraction of those artifacts ,generate a text file with all the findings so the analyst can analyze them right away.
+
+**Note:** so far the script works only with eml format
+
+# What the script can do so far?
+* Extract the Public IP addresses pariticipated in the email delivery flow
+* Extract URLs in the content
+* Provide a list of all hostnames contained ( for domain analysis )
+* Provide a list of the filenames attached and their corresponding filehashes ( *sha256* )
+* Extract timestamps in the *Received* and *Date* headers then convert them to isoformatted (for checking timing anomalies)
+* *[Optionally]* dumps the attachments to the local storage (if file analysis is needed)
+
+# Usage:
+>python .\phioax.py -h
+>
+>usage: phioax.py [-h] -p PATH [-d [DUMP]]
+>
+>This program is developed to help SOC analysts extracting Indicator of Attack from
+>a suspicious email and check them agianst comon OSINT
+>
+>options:
+>
+>  -h, --help            show this help message and exit
+>
+>  -p PATH, --path PATH >>> Mandatory: the path of the eml file
+>
+>  -d [DUMP], --dump [DUMP]
+>                       >>> Optional: dumps the attachments to the path you specify
+> [or to the current directory if not specified] for more manual analysis
+\
+  \
+![](test1.jpg)
+
+![](test2.jpg)
+
+# Future additions:
+1) Automated check IoA ( urls- ips- hashes - domains ) with VirusTotal
+2) optimize the script to  iterate through a directory containing multiple eml files and perform the analysis for all of them
+3) process msg formatted messages
+4) automated check for the sender/s against email breach and email pastes datasets of have I been Pwned
+5) query sender/s dns for sfp record and put them in the output file 
+6) automated check on URLs to detect abnormal behaviors e.g. redirections or file download 
+7) unquote unicode encoded URLs (in the safe links)
+8) support IPv6 extraction
+
+
+
