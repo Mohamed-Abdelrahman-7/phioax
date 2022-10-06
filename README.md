@@ -31,10 +31,12 @@ Manulally extracting all the email artificats consume time and some of them coul
 >                       >>> Optional: dumps the attachments to the path you specify
 > [or to the current directory if not specified] for more manual analysis
   
+\
+![](test1.jpg) 
 
-![](test1.jpg)
-
-![](test2.jpg)
+#### using the -d (--dump) arguemnt to dump the attachments to your local storage  
+\
+![](test2.jpg)  
 
 # Future additions:
 1) Automated check IoA ( urls- ips- hashes - domains ) with VirusTotal
