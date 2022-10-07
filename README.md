@@ -14,6 +14,10 @@ Manulally extracting all the email artificats consume time and some of them coul
 * *[Optionally]* dumps the attachments to the local storage (if file analysis is needed)
 
 # Usage:
+when using for the first time, install the required 3rd party libraries listsed in the requirements.txt file as follows:
+>pip install -r requirements.txt
+
+usgae:
 >python .\phioax.py -h
 >
 >usage: phioax.py [-h] -p PATH [-d [DUMP]]
