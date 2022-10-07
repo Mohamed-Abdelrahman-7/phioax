@@ -1,4 +1,5 @@
-import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse
+import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse,vt,json
+from pydoc import cli
 from datetime import datetime
 
 #function to load the eml from the path specified by the user 
@@ -95,9 +96,15 @@ def main():
     nameHash=hash_ex(emlBinary,args.dump)
     isoDatetimes=datetimex(emlClean)
     hostNames=set(map(lambda x: urllib.parse.urlparse(x).hostname,urls))
+    with open('api_keys.json','rt') as jsf:
+        client=vt.Client(json.load(jsf)["VT_api_key"])
     with open(fileName+'_anlysis.txt','wt') as o:
         o.write("*********************list of IPs extracted***********************************\n\n")
-        [o.write(ip+'\n') for ip in ips ]
+        for ip in ips:
+            o.write('>>>'+ip+'\n')
+            ip=client.get_object("/ip_addresses/{}".format(ip))
+            o.write("VT analysis: Ip is located in ({}) and belongs to ({}). stats: It's reported as malicious by {}, suspicious by {}, harmless by {} and undected by {}\n"\
+                .format(ip.get("country"),ip.get("as_owner"),*[ip.get('last_analysis_stats')[key] for key in ['malicious','suspicious','harmless','undetected']]))
         o.write('\n*******************list of URLs extracted***********************************\n\n')
         [o.write(url+'\n') for url in urls]
         o.write('\n**************list of URLs extracted from outlook safe links****************\n\n')
@@ -110,7 +117,8 @@ def main():
         [o.write(isodatetime+'\n') for isodatetime in isoDatetimes]
         o.write('\n****************************************************************************\n\
 ****************************************************************************\n')
-        o.write("\n\nThanks for using the tool for any comments and issues please drop me a message on https://www.linkedin.com/in/moabdelrahman/ \n\n ")
+        o.write("\n\nThanks for your support by using the tool! for any comments and issues please drop me a message on https://www.linkedin.com/in/moabdelrahman/ \n\n ")
     print("\nGreat!!! the IoAs extracted successfully please check {}_analysis.txt\n".format(fileName))
+
 if __name__=='__main__':
     main()
