@@ -1,4 +1,4 @@
-import  argparse,quopri,re,hashlib,email,os,urllib
+import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse
 from datetime import datetime
 
 #function to load the eml from the path specified by the user 
@@ -43,8 +43,9 @@ def extract_ioa(emlClean):
             continue 
         else:
             pubIps.append(i)
-    Urls=re.findall(r'https?://[^\s\"><]+',emlClean)
-    return set(pubIps),set(Urls)
+    urls=[urllib.parse.unquote(x) for x in re.findall(r'https?://[^\s\"><]+',emlClean)]
+    urlsFromSafeLinks=re.findall(r'safelinks.+?outlook\.com.+?(https?://[^\s\"><]+)','\n'.join(urls))
+    return set(pubIps),set(urls),set(urlsFromSafeLinks)
 
 #function to get a list of attachements and their corresponding file hashes [Optionally dump the attachments to your local storage]
 def hash_ex(eml,dumpPath):
@@ -84,13 +85,13 @@ def datetimex(eml):
    return isoDatetimes
 
 def main():
-    argP=argparse.ArgumentParser(description="This tool is developed to help SOC analysts extracting Indicator of Attack from a suspicious email and check them agianst common OSINT")
+    argP=argparse.ArgumentParser(description="This tool is developed to help SOC analysts extracting Indicator of Attack from a suspicious email to check them agianst  OSINT resources")
     argP.add_argument("-p","--path",required=True,type=str,help=">>> Mandatory: the path of the eml file")
     argP.add_argument("-d","--dump",nargs='?',const='.',help=">>> Optional: dumps the attachments to the path you specify [or to the current directory if not specified] for more manual analysis")
     args=argP.parse_args()
     emlBinary,fileName=eml_grabber(args.path)
     emlClean=quo_cleaner(emlBinary)
-    ips,urls=extract_ioa(emlClean)
+    ips,urls,urlsFromSafeLink=extract_ioa(emlClean)
     nameHash=hash_ex(emlBinary,args.dump)
     isoDatetimes=datetimex(emlClean)
     hostNames=set(map(lambda x: urllib.parse.urlparse(x).hostname,urls))
@@ -99,14 +100,17 @@ def main():
         [o.write(ip+'\n') for ip in ips ]
         o.write('\n*******************list of URLs extracted***********************************\n\n')
         [o.write(url+'\n') for url in urls]
+        o.write('\n**************list of URLs extracted from outlook safe links****************\n\n')
+        [o.write(url+'\n') for url in urlsFromSafeLink]
         o.write('\n*****************list of hostnems extracted*********************************\n\n')
         [o.write(hostname+'\n') for hostname in hostNames] 
         o.write('\n*************list of attachmnets and their filehashes extracted*************\n\n')
         [o.write(key+": {}\n".format(nameHash[key])) for key in nameHash.keys()]
         o.write('\n*****************list of timestamps extracted*******************************\n\n')
         [o.write(isodatetime+'\n') for isodatetime in isoDatetimes]
-        o.write("\n\n Thanks for using the tool for any comments and issues please drop me a message on https://www.linkedin.com/in/moabdelrahman/ \n\n ")
+        o.write('\n****************************************************************************\n\
+****************************************************************************\n')
+        o.write("\n\nThanks for using the tool for any comments and issues please drop me a message on https://www.linkedin.com/in/moabdelrahman/ \n\n ")
     print("\nGreat!!! the IoAs extracted successfully please check {}_analysis.txt\n".format(fileName))
-
 if __name__=='__main__':
     main()

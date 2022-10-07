@@ -19,7 +19,7 @@ Manulally extracting all the email artificats consume time and some of them coul
 >usage: phioax.py [-h] -p PATH [-d [DUMP]]
 >
 >This program is developed to help SOC analysts extracting Indicator of Attack from
->a suspicious email and check them agianst comon OSINT
+>a suspicious email to check them agianst  OSINT resources
 >
 >options:
 >
@@ -45,8 +45,7 @@ Manulally extracting all the email artificats consume time and some of them coul
 4) automated check for the sender/s against email breach and email pastes datasets of have I been Pwned
 5) query sender/s dns for sfp record and put them in the output file 
 6) automated check on URLs to detect abnormal behaviors e.g. redirections or file download 
-7) unquote unicode encoded URLs (in the safe links)
-8) support IPv6 extraction
+7) support IPv6 extraction
 
 
 
