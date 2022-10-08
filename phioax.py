@@ -85,6 +85,27 @@ def datetimex(eml):
             continue
    return isoDatetimes
 
+def ip_intel_vt(client,ip):
+    ipReport=client.get_object("/ip_addresses/{}".format(ip))
+    """ a function that will take vt.Client object and ip (string) as a parmaters and perform IP reputation, reolution, SSL info analysis for this IP"""
+    reputation="VT analysis: Ip is located in ({}) and belongs to ({}). stats: It's reported as malicious by {}, suspicious by {}, harmless by {} and undected by {}\n"\
+                .format(ipReport.get("country"),ipReport.get("as_owner"),*[ipReport.get('last_analysis_stats')[key] for key in ['malicious','suspicious','harmless','undetected']])
+    try:
+        ipSslCert=list(client.iterator("/ip_addresses/{}/historical_ssl_certificates".format(ip),limit=1))[0]
+        sslInfo="VT SSL cert analysis: this ip has an SSL ceritiface issued by ({}) to a subject name ({}) not_after ({}) and not before ({}). first seen at ({}) and it listens to the ssl service on port ({})\n".format(ipSslCert.issuer['O'],\
+    ipSslCert.subject['CN'],ipSslCert.validity['not_after'],ipSslCert.validity['not_before'],*[ipSslCert.context_attributes[key] for key in ['first_seen_date','port']])
+    except:
+        sslInfo="There is no SSL certificate available for that IP\n"
+    
+    try:
+        ipRes=client.iterator("/ip_addresses/{}/resolutions".format(ip))
+        hosts="This IP found serving the following hosts:\n"
+        for host in ipRes:
+         hosts+=host.host_name +" at "+ datetime.isoformat(host.date)+'\n'
+    except:
+        pass
+    return reputation,sslInfo,hosts
+    
 def main():
     argP=argparse.ArgumentParser(description="This tool is developed to help SOC analysts extracting Indicator of Attack from a suspicious email to check them agianst  OSINT resources")
     argP.add_argument("-p","--path",required=True,type=str,help=">>> Mandatory: the path of the eml file")
@@ -97,14 +118,19 @@ def main():
     isoDatetimes=datetimex(emlClean)
     hostNames=set(map(lambda x: urllib.parse.urlparse(x).hostname,urls))
     with open('api_keys.json','rt') as jsf:
-        client=vt.Client(json.load(jsf)["VT_api_key"])
+        try:
+            vtClient=vt.Client(json.load(jsf)["VT_api_key"])
+        except:
+            vtClient=None
     with open(fileName+'_anlysis.txt','wt') as o:
         o.write("*********************list of IPs extracted***********************************\n\n")
-        for ip in ips:
-            o.write('>>>'+ip+'\n')
-            ip=client.get_object("/ip_addresses/{}".format(ip))
-            o.write("VT analysis: Ip is located in ({}) and belongs to ({}). stats: It's reported as malicious by {}, suspicious by {}, harmless by {} and undected by {}\n"\
-                .format(ip.get("country"),ip.get("as_owner"),*[ip.get('last_analysis_stats')[key] for key in ['malicious','suspicious','harmless','undetected']]))
+        if vtClient !=None:
+            for ip in ips:
+                o.write('>>>'+ip+'\n\n')
+                reputation,sslInfo,hosts=ip_intel_vt(vtClient,ip)
+                o.write(reputation+'\n'+sslInfo+'\n'+hosts+'\n')
+        else:
+            [o.write('>>>'+ip+'\n') for ip in ips] 
         o.write('\n*******************list of URLs extracted***********************************\n\n')
         [o.write(url+'\n') for url in urls]
         o.write('\n**************list of URLs extracted from outlook safe links****************\n\n')
@@ -119,6 +145,5 @@ def main():
 ****************************************************************************\n')
         o.write("\n\nThanks for your support by using the tool! for any comments and issues please drop me a message on https://www.linkedin.com/in/moabdelrahman/ \n\n ")
     print("\nGreat!!! the IoAs extracted successfully please check {}_analysis.txt\n".format(fileName))
-
 if __name__=='__main__':
     main()
