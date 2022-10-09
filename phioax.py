@@ -83,7 +83,10 @@ def datetimex(eml):
             isoDatetimes.append(datetime.strptime(j,"%d %b %Y %H:%M:%S %z").isoformat())
     except:
             continue
-   return isoDatetimes
+   isoDatetimes=sorted(isoDatetimes,key=datetime.fromisoformat)
+   timeDiff="time deviation of observed timestamps is {} days and {} seconds\n".format((datetime.fromisoformat(isoDatetimes[-1])-datetime.fromisoformat(isoDatetimes[0])).days,\
+    (datetime.fromisoformat(isoDatetimes[-1])-datetime.fromisoformat(isoDatetimes[0])).seconds) 
+   return isoDatetimes,timeDiff
 
 def ip_intel_vt(client,ip):
     ipReport=client.get_object("/ip_addresses/{}".format(ip))
@@ -115,7 +118,7 @@ def main():
     emlClean=quo_cleaner(emlBinary)
     ips,urls,urlsFromSafeLink=extract_ioa(emlClean)
     nameHash=hash_ex(emlBinary,args.dump)
-    isoDatetimes=datetimex(emlClean)
+    isoDatetimes,timeDiff=datetimex(emlClean)
     hostNames=set(map(lambda x: urllib.parse.urlparse(x).hostname,urls))
     with open('api_keys.json','rt') as jsf:
         try:
@@ -141,6 +144,7 @@ def main():
         [o.write(key+": {}\n".format(nameHash[key])) for key in nameHash.keys()]
         o.write('\n*****************list of timestamps extracted*******************************\n\n')
         [o.write(isodatetime+'\n') for isodatetime in isoDatetimes]
+        o.write('\n'+timeDiff)
         o.write('\n****************************************************************************\n\
 ****************************************************************************\n')
         o.write("\n\nThanks for your support by using the tool! for any comments and issues please drop me a message on https://www.linkedin.com/in/moabdelrahman/ \n\n ")
