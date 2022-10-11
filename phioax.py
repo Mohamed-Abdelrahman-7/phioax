@@ -1,5 +1,4 @@
 import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse,vt,json
-from pydoc import cli
 from datetime import datetime
 
 #function to load the eml from the path specified by the user 
@@ -69,7 +68,8 @@ def hash_ex(eml,dumpPath):
 
 # function to extract datetimes to detect any datetime anomlaies
 def datetimex(eml):
-   """extracts all times found in the email and converts them to readable ISO formatted times so the analyst can find any time anomalies"""
+   """extracts all times found in the email and converts them to readable ISO formatted times, so the analyst can find any time anomalies
+   returns: iso timestamps [list] and the time delta between earler and older timestamps obverved "string" """
    rDatetime= re.findall(r'(?<=Received)[^;]*;[^\d]+(.+\d)',eml)
    dDatetime=re.findall(r'(?<=Date)[^,]*,[^\d]+(.+\d)',eml)
    isoDatetimes=[]
@@ -91,8 +91,11 @@ def datetimex(eml):
 def ip_intel_vt(client,ip):
     ipReport=client.get_object("/ip_addresses/{}".format(ip))
     """ a function that will take vt.Client object and ip (string) as a parmaters and perform IP reputation, reolution, SSL info analysis for this IP"""
-    reputation="VT analysis: Ip is located in ({}) and belongs to ({}). stats: It's reported as malicious by {}, suspicious by {}, harmless by {} and undected by {}\n"\
+    try:
+        reputation="VT analysis: Ip is located in ({}) and belongs to ({}). stats: It's reported as malicious by {}, suspicious by {}, harmless by {} and undected by {}\n"\
                 .format(ipReport.get("country"),ipReport.get("as_owner"),*[ipReport.get('last_analysis_stats')[key] for key in ['malicious','suspicious','harmless','undetected']])
+    except:
+        reputation="No reputation data is available for that IP \n"
     try:
         ipSslCert=list(client.iterator("/ip_addresses/{}/historical_ssl_certificates".format(ip),limit=1))[0]
         sslInfo="VT SSL cert analysis: this ip has an SSL ceritiface issued by ({}) to a subject name ({}) not_after ({}) and not before ({}). first seen at ({}) and it listens to the ssl service on port ({})\n".format(ipSslCert.issuer['O'],\
@@ -100,14 +103,30 @@ def ip_intel_vt(client,ip):
     except:
         sslInfo="There is no SSL certificate available for that IP\n"
     
+    hosts="This IP found serving the following hosts:\n"
     try:
         ipRes=client.iterator("/ip_addresses/{}/resolutions".format(ip))
-        hosts="This IP found serving the following hosts:\n"
         for host in ipRes:
          hosts+=host.host_name +" at "+ datetime.isoformat(host.date)+'\n'
     except:
         pass
     return reputation,sslInfo,hosts
+
+def hash_intel_vt(client,hash):
+    """take a vt.Client object and a filehash "string" and returns the last_analysis_stats for that hash"""
+    parameters={'query':hash}
+    filehashReport=""
+    try:
+        hashReport=client.iterator("/search",params=parameters)
+        for i in hashReport:
+            stats=i.get("last_analysis_stats")
+            filehashReport+="VirusTotal filehash analysis: filehash is reported as harmless by ({}), type unsupported by ({}), suspicious by ({}),  malicious by ({}) and undected by ({})\n"\
+                .format(*[stats.get(key) for key in ["harmless","type-unsupported","suspicious","malicious","undetected"]])
+        if len(filehashReport)==0:
+            filehashReport="VirusTotal doesn't have information available for that filehash !!\n"
+    except Exception as e:
+        filehashReport="an error {} occured while trying to query VT for the filehash !!".format(e)
+    return filehashReport
     
 def main():
     argP=argparse.ArgumentParser(description="This tool is developed to help SOC analysts extracting Indicator of Attack from a suspicious email to check them agianst  OSINT resources")
@@ -141,7 +160,13 @@ def main():
         o.write('\n*****************list of hostnems extracted*********************************\n\n')
         [o.write(hostname+'\n') for hostname in hostNames] 
         o.write('\n*************list of attachmnets and their filehashes extracted*************\n\n')
-        [o.write(key+": {}\n".format(nameHash[key])) for key in nameHash.keys()]
+        if vtClient !=None:
+            for key in nameHash.keys():
+                o.write(key+": {}\n".format(nameHash[key])+'\n')
+                filehashReport=hash_intel_vt(vtClient,nameHash[key])
+                o.write(filehashReport+'\n\n')
+        else:
+            [o.write(key+": {}\n".format(nameHash[key])) for key in nameHash.keys()]
         o.write('\n*****************list of timestamps extracted*******************************\n\n')
         [o.write(isodatetime+'\n') for isodatetime in isoDatetimes]
         o.write('\n'+timeDiff)
