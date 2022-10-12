@@ -1,6 +1,5 @@
 import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse,vt,json
 from datetime import datetime
-
 #function to load the eml from the path specified by the user 
 def eml_grabber(pth):
     """reads the eml file from the path specified and returns the filename and binary content of the file"""
@@ -16,8 +15,6 @@ def eml_grabber(pth):
     except Exception as e:
         print("an error {} occured while reading the file !!!".format(e))
         exit(1)
-    
-
 # defining a fucntion to decode  quoted printable characters and return a clean version of the eml file
 def quo_cleaner(eml):
     """decode quoted printable characters """
@@ -26,9 +23,7 @@ def quo_cleaner(eml):
         return emlClean.decode(errors='ignore')
     except Exception as e:
         print("an error {} occured while cleaning quoted printable characters the program will process the eml file as is without cleaning !!!".format(e))
-        return(eml.decode(errors='ignore'))
-    
-
+        return(eml.decode(errors='ignore'))  
 #function to extract public IPs and urls
 def extract_ioa(emlClean):
     """extracts public IPs and URLs found in the email content"""
@@ -46,7 +41,6 @@ def extract_ioa(emlClean):
     urls=[urllib.parse.unquote(x) for x in re.findall(r'https?://[^\s\"><]+',emlClean)]
     urlsFromSafeLinks=re.findall(r'safelinks.+?outlook\.com.+?(https?://[^\s\"><]+)','\n'.join(urls))
     return set(pubIps),set(urls),set(urlsFromSafeLinks)
-
 #function to get a list of attachements and their corresponding file hashes [Optionally dump the attachments to your local storage]
 def hash_ex(eml,dumpPath):
     """get a list of attachements and their corresponding file hashes [Optionally dump the attachments to your local storage] if argument d (-d) is set by the user while excuting the script"""
@@ -65,7 +59,6 @@ def hash_ex(eml,dumpPath):
                 except Exception as e:
                      print("an error {} occured while dumping{} and the attachments won't be dumped!!! please check your write permission on the specified directory".format(e,fileName))
     return nameHash
-
 # function to extract datetimes to detect any datetime anomlaies
 def datetimex(eml):
    """extracts all times found in the email and converts them to readable ISO formatted times, so the analyst can find any time anomalies
@@ -87,11 +80,10 @@ def datetimex(eml):
    timeDiff="time deviation of observed timestamps is {} days and {} seconds\n".format((datetime.fromisoformat(isoDatetimes[-1])-datetime.fromisoformat(isoDatetimes[0])).days,\
     (datetime.fromisoformat(isoDatetimes[-1])-datetime.fromisoformat(isoDatetimes[0])).seconds) 
    return isoDatetimes,timeDiff
-
 def ip_intel_vt(client,ip):
-    ipReport=client.get_object("/ip_addresses/{}".format(ip))
     """ a function that will take vt.Client object and ip (string) as a parmaters and perform IP reputation, reolution, SSL info analysis for this IP"""
     try:
+        ipReport=client.get_object("/ip_addresses/{}".format(ip))
         reputation="VT analysis: Ip is located in ({}) and belongs to ({}). stats: It's reported as malicious by {}, suspicious by {}, harmless by {} and undected by {}\n"\
                 .format(ipReport.get("country"),ipReport.get("as_owner"),*[ipReport.get('last_analysis_stats')[key] for key in ['malicious','suspicious','harmless','undetected']])
     except:
@@ -111,7 +103,6 @@ def ip_intel_vt(client,ip):
     except:
         pass
     return reputation,sslInfo,hosts
-
 def hash_intel_vt(client,hash):
     """take a vt.Client object and a filehash "string" and returns the last_analysis_stats for that hash"""
     parameters={'query':hash}
@@ -126,8 +117,19 @@ def hash_intel_vt(client,hash):
             filehashReport="VirusTotal doesn't have information available for that filehash !!\n"
     except Exception as e:
         filehashReport="an error {} occured while trying to query VT for the filehash !!".format(e)
-    return filehashReport
-    
+    return filehashReport   
+def domain_intel_vt(client,hostname):
+    try:
+        domainObject=client.get_object("/domains/{}".format(hostname))
+        domainReport="VT analysis: last dns records found for the domain are: \n {} \nstats: It's reported as harmless by {}, malicious by {}, suspicious by {} and undected by {}\n\
+the domain is registered by {} at {}\nlast https certificate for that domain issued by {} with a subject {} not after {} and not before {}"\
+                .format('\n'.join(["-{} record with value {} and ttl {}".format(*[record[key] for key in ['type','value','ttl']]) for record in domainObject.get("last_dns_records")])\
+                    ,*[domainObject.get('last_analysis_stats')[key] for key in ['harmless','malicious','suspicious','undetected']],domainObject.get('registrar'),\
+                        datetime.isoformat(datetime.fromtimestamp(domainObject.get("creation_date"))),domainObject.get("last_https_certificate")["issuer"]["O"],\
+                            domainObject.get("last_https_certificate")["subject"]["CN"],*[domainObject.get("last_https_certificate")["validity"][key] for key in ["not_after","not_before"]])
+    except Exception as e:
+     domainReport="An error {} occured while trying to get domain information from VirusTotal\n".format(e)
+    return domainReport
 def main():
     argP=argparse.ArgumentParser(description="This tool is developed to help SOC analysts extracting Indicator of Attack from a suspicious email to check them agianst  OSINT resources")
     argP.add_argument("-p","--path",required=True,type=str,help=">>> Mandatory: the path of the eml file")
@@ -158,7 +160,13 @@ def main():
         o.write('\n**************list of URLs extracted from outlook safe links****************\n\n')
         [o.write(url+'\n') for url in urlsFromSafeLink]
         o.write('\n*****************list of hostnems extracted*********************************\n\n')
-        [o.write(hostname+'\n') for hostname in hostNames] 
+        if vtClient !=None:
+            for hostname in hostNames:
+                o.write('>>>'+hostname+'\n')
+                domainReport=domain_intel_vt(vtClient,hostname)
+                o.write(domainReport+'\n\n')
+        else:
+            [o.write(hostname+'\n') for hostname in hostNames] 
         o.write('\n*************list of attachmnets and their filehashes extracted*************\n\n')
         if vtClient !=None:
             for key in nameHash.keys():
