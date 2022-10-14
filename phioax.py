@@ -146,7 +146,7 @@ def main():
     ips,urls,urlsFromSafeLink,urlsFromFireeyeProtect=extract_ioa(emlClean)
     nameHash=hash_ex(emlBinary,args.dump)
     isoDatetimes,timeDiff=datetimex(emlClean)
-    hostNames=set(map(lambda x: urllib.parse.urlparse(x).hostname,urls))
+    hostNames=set(map(lambda x: urllib.parse.urlparse(x).hostname,(urls.union(urlsFromSafeLink)).union(urlsFromFireeyeProtect)))
     with open('api_keys.json','rt') as jsf:
         try:
             vtClient=vt.Client(json.load(jsf)["VT_api_key"])
