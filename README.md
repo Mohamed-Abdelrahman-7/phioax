@@ -10,14 +10,18 @@ Manulally extracting all the email artificats consume time and some of them coul
 * Extract URLs in the content
 * Provide a list of all hostnames contained ( for domain analysis )
 * Provide a list of the filenames attached and their corresponding filehashes ( *sha256* )
-* Extract timestamps in the *Received* and *Date* headers then convert them to isoformatted (for checking timing anomalies)
+* Extract timestamps in the *Received* and *Date* headers then convert them to isoformatted, and calculate the time delta ( for detecting time anomalies)
 * *[Optionally]* dumps the attachments to the local storage (if file analysis is needed)
-
+* ViruTotal automated analysis on IPs, Hostnames, Filehashes 
+* Extract the URLs from safelinks 
+  
 # Usage:
 when using for the first time, install the required 3rd party libraries listsed in the requirements.txt file as follows:
->pip install -r requirements.txt
+>pip install -r requirements.txt 
 
-usgae:
+Also make sure to update *api_keys.json* file with your VirusTotal API key
+
+Usage:
 >python .\phioax.py -h
 >
 >usage: phioax.py [-h] -p PATH [-d [DUMP]]
