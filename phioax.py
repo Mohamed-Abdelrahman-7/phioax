@@ -1,14 +1,17 @@
-import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse,vt,json
+import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse,vt,json,base64
 from datetime import datetime
+from email import parser
 #function to load the eml from the path specified by the user 
 def eml_grabber(pth):
     """reads the eml file from the path specified and returns the filename and binary content of the file"""
     try:
         with open(pth,'rb') as f:
-            eml=f.read()
+            emlBytesObject=f.read()
             print("\nThe eml file is read successully, cleanining and parsing process is being initiated....")
             fileName=os.path.split(f.name)[-1]
-            return eml,fileName
+            emailParser=parser.BytesParser()
+            EmailMessageObject=emailParser.parsebytes(emlBytesObject)
+            return emlBytesObject,fileName,EmailMessageObject
     except FileNotFoundError:
         print("the file you specified doesn't exist !!!")
         exit(1)
@@ -16,14 +19,15 @@ def eml_grabber(pth):
         print("an error {} occured while reading the file !!!".format(e))
         exit(1)
 # defining a fucntion to decode  quoted printable characters and return a clean version of the eml file
-def quo_cleaner(eml):
-    """decode quoted printable characters """
-    try:
-        emlClean=quopri.decodestring(eml)
-        return emlClean.decode(errors='ignore')
-    except Exception as e:
-        print("an error {} occured while cleaning quoted printable characters the program will process the eml file as is without cleaning !!!".format(e))
-        return(eml.decode(errors='ignore'))  
+def quo_cleaner(messageObject):
+    """decodes base64 and quoted printable encoded email parts 
+    takes email.message object and returns a string of the message after cleaning """
+    for part in messageObject.walk():
+        if "text" in part.get_content_type() and part.get("Content-Transfer-Encoding") == "base64":
+            part.set_payload(base64.b64decode(part.get_payload().encode()).decode())
+        elif "text" in part.get_content_type() and part.get("Content-Transfer-Encoding") == "quoted-printable":
+            part.set_payload(quopri.decodestring(part.get_payload()).decode())
+    return messageObject.as_string() 
 #function to extract public IPs and urls
 def extract_ioa(emlClean):
     """extracts public IPs and URLs found in the email content"""
@@ -38,9 +42,10 @@ def extract_ioa(emlClean):
             continue 
         else:
             pubIps.append(i)
-    urls=[urllib.parse.unquote(x) for x in re.findall(r'https?://[^\s\"><]+',emlClean)]
-    urlsFromSafeLinks=re.findall(r'safelinks.+?outlook\.com.+?(https?://[^\s\"><]+)','\n'.join(urls))
-    return set(pubIps),set(urls),set(urlsFromSafeLinks)
+    urls=[urllib.parse.unquote(x) for x in re.findall(r'https?(?:://|%3A%2F%2F)[^\s\"><]+',emlClean)]
+    urlsFromSafeLinks= [urllib.parse.unquote(x) for x in  re.findall(r'safelinks.+?outlook\.com.+?(https?(?:://|%3A%2F%2F)[^\s\"><]+)','\n'.join(urls))]
+    urlsFromFireeyeProtect=[urllib.parse.unquote(x) for x in re.findall(r'protect.+?fireeye\.com.+?(https?(?:://|%3A%2F%2F)[^\s\"><]+)','\n'.join(urls))]
+    return set(pubIps),set(urls),set(urlsFromSafeLinks),set(urlsFromFireeyeProtect)
 #function to get a list of attachements and their corresponding file hashes [Optionally dump the attachments to your local storage]
 def hash_ex(eml,dumpPath):
     """get a list of attachements and their corresponding file hashes [Optionally dump the attachments to your local storage] if argument d (-d) is set by the user while excuting the script"""
@@ -125,8 +130,9 @@ def domain_intel_vt(client,hostname):
 the domain is registered by {} at {}\nlast https certificate for that domain issued by {} with a subject {} not after {} and not before {}"\
                 .format('\n'.join(["-{} record with value {} and ttl {}".format(*[record[key] for key in ['type','value','ttl']]) for record in domainObject.get("last_dns_records")])\
                     ,*[domainObject.get('last_analysis_stats')[key] for key in ['harmless','malicious','suspicious','undetected']],domainObject.get('registrar'),\
-                        datetime.isoformat(datetime.fromtimestamp(domainObject.get("creation_date"))),domainObject.get("last_https_certificate")["issuer"]["O"],\
-                            domainObject.get("last_https_certificate")["subject"]["CN"],*[domainObject.get("last_https_certificate")["validity"][key] for key in ["not_after","not_before"]])
+                        datetime.isoformat(datetime.fromtimestamp(domainObject.get("creation_date"))) if domainObject.get("creation_date") !=None else "Unknown" \
+                            ,domainObject.get("last_https_certificate")["issuer"]["O"],\
+                            domainObject.get("last_https_certificate")["subject"]["CN"],*[domainObject.get("last_https_certificate")["validity"][key] for key in ["not_after","not_before"]])    
     except Exception as e:
      domainReport="An error {} occured while trying to get domain information from VirusTotal\n".format(e)
     return domainReport
@@ -135,9 +141,9 @@ def main():
     argP.add_argument("-p","--path",required=True,type=str,help=">>> Mandatory: the path of the eml file")
     argP.add_argument("-d","--dump",nargs='?',const='.',help=">>> Optional: dumps the attachments to the path you specify [or to the current directory if not specified] for more manual analysis")
     args=argP.parse_args()
-    emlBinary,fileName=eml_grabber(args.path)
-    emlClean=quo_cleaner(emlBinary)
-    ips,urls,urlsFromSafeLink=extract_ioa(emlClean)
+    emlBinary,fileName,messageObject=eml_grabber(args.path)
+    emlClean=quo_cleaner(messageObject)
+    ips,urls,urlsFromSafeLink,urlsFromFireeyeProtect=extract_ioa(emlClean)
     nameHash=hash_ex(emlBinary,args.dump)
     isoDatetimes,timeDiff=datetimex(emlClean)
     hostNames=set(map(lambda x: urllib.parse.urlparse(x).hostname,urls))
@@ -146,41 +152,47 @@ def main():
             vtClient=vt.Client(json.load(jsf)["VT_api_key"])
         except:
             vtClient=None
-    with open(fileName+'_anlysis.txt','wt') as o:
-        o.write("*********************list of IPs extracted***********************************\n\n")
-        if vtClient !=None:
-            for ip in ips:
-                o.write('>>>'+ip+'\n\n')
-                reputation,sslInfo,hosts=ip_intel_vt(vtClient,ip)
-                o.write(reputation+'\n'+sslInfo+'\n'+hosts+'\n')
-        else:
-            [o.write('>>>'+ip+'\n') for ip in ips] 
-        o.write('\n*******************list of URLs extracted***********************************\n\n')
-        [o.write(url+'\n') for url in urls]
-        o.write('\n**************list of URLs extracted from outlook safe links****************\n\n')
-        [o.write(url+'\n') for url in urlsFromSafeLink]
-        o.write('\n*****************list of hostnems extracted*********************************\n\n')
-        if vtClient !=None:
-            for hostname in hostNames:
-                o.write('>>>'+hostname+'\n')
-                domainReport=domain_intel_vt(vtClient,hostname)
-                o.write(domainReport+'\n\n')
-        else:
-            [o.write(hostname+'\n') for hostname in hostNames] 
-        o.write('\n*************list of attachmnets and their filehashes extracted*************\n\n')
-        if vtClient !=None:
-            for key in nameHash.keys():
-                o.write(key+": {}\n".format(nameHash[key])+'\n')
-                filehashReport=hash_intel_vt(vtClient,nameHash[key])
-                o.write(filehashReport+'\n\n')
-        else:
-            [o.write(key+": {}\n".format(nameHash[key])) for key in nameHash.keys()]
-        o.write('\n*****************list of timestamps extracted*******************************\n\n')
-        [o.write(isodatetime+'\n') for isodatetime in isoDatetimes]
-        o.write('\n'+timeDiff)
-        o.write('\n****************************************************************************\n\
+    try:
+        with open(fileName+'_anlysis.txt','wt') as o:
+            o.write("*********************list of IPs extracted***********************************\n\n")
+            if vtClient !=None:
+                for ip in ips:
+                    o.write('>>>'+ip+'\n\n')
+                    reputation,sslInfo,hosts=ip_intel_vt(vtClient,ip)
+                    o.write(reputation+'\n'+sslInfo+'\n'+hosts+'\n')
+            else:
+                [o.write('>>>'+ip+'\n') for ip in ips] 
+            o.write('\n*******************list of URLs extracted***********************************\n\n')
+            [o.write(url+'\n') for url in urls]
+            o.write('\n**************list of URLs extracted from outlook safe links****************\n\n')
+            [o.write(url+'\n') for url in urlsFromSafeLink]
+            o.write('\n**************list of URLs extracted from fireeye protect links****************\n\n')
+            [o.write(url+'\n') for url in urlsFromFireeyeProtect]
+            o.write('\n*****************list of hostnems extracted*********************************\n\n')
+            if vtClient !=None:
+                for hostname in hostNames:
+                    o.write('>>>'+hostname+'\n')
+                    domainReport=domain_intel_vt(vtClient,hostname)
+                    o.write(domainReport+'\n\n')
+            else:
+                [o.write(hostname+'\n') for hostname in hostNames] 
+            o.write('\n*************list of attachmnets and their filehashes extracted*************\n\n')
+            if vtClient !=None:
+                for key in nameHash.keys():
+                    o.write(key+": {}\n".format(nameHash[key])+'\n')
+                    filehashReport=hash_intel_vt(vtClient,nameHash[key])
+                    o.write(filehashReport+'\n\n')
+            else:
+                [o.write(key+": {}\n".format(nameHash[key])) for key in nameHash.keys()]
+            o.write('\n*****************list of timestamps extracted*******************************\n\n')
+            [o.write(isodatetime+'\n') for isodatetime in isoDatetimes]
+            o.write('\n'+timeDiff)
+            o.write('\n****************************************************************************\n\
 ****************************************************************************\n')
-        o.write("\n\nThanks for your support by using the tool! for any comments and issues please drop me a message on https://www.linkedin.com/in/moabdelrahman/ \n\n ")
+            o.write("\n\nThanks for your support by using the tool! for any comments and issues please drop me a message on https://www.linkedin.com/in/moabdelrahman/ \n\n ")
+    except Exception as e:
+        print("an error {} occured while trying to create the analysis and the decoded email files! please check your permissions".format(e))
+
     print("\nGreat!!! the IoAs extracted successfully please check {}_analysis.txt\n".format(fileName))
 if __name__=='__main__':
     main()
