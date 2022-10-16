@@ -1,4 +1,5 @@
-import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse,vt,json,base64
+import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse,vt,json,base64,dkim,sys
+from email import message
 from datetime import datetime
 from email import parser
 #function to load the eml from the path specified by the user 
@@ -154,6 +155,10 @@ def main():
             vtClient=None
     try:
         with open(fileName+'_anlysis.txt','wt') as o:
+            o.write("*********************DKIM and ARC Verification***********************************\n\n")
+            o.write("- DKIM Verification pass\n") if dkim.verify(emlBinary) else o.write("- DKIM verification failed\n")
+            cv, results, comment = dkim.arc_verify(emlBinary) 
+            o.write("- ARC verification: cv=%s %s\n\n" % (cv, comment))
             o.write("*********************list of IPs extracted***********************************\n\n")
             if vtClient !=None:
                 for ip in ips:
@@ -192,7 +197,7 @@ def main():
             o.write("\n\nThanks for your support by using the tool! for any comments and issues please drop me a message on https://www.linkedin.com/in/moabdelrahman/ \n\n ")
     except Exception as e:
         print("an error {} occured while trying to create the analysis and the decoded email files! please check your permissions".format(e))
-
+        exit(1)
     print("\nGreat!!! the IoAs extracted successfully please check {}_analysis.txt\n".format(fileName))
 if __name__=='__main__':
     main()
