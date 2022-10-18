@@ -1,4 +1,5 @@
 import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse,vt,json,base64,dkim,sys
+from asyncore import write
 from email import message
 from datetime import datetime
 from email import parser
@@ -155,7 +156,18 @@ def main():
             vtClient=None
     try:
         with open(fileName+'_anlysis.txt','wt') as o:
-            o.write("*********************DKIM and ARC Verification***********************************\n\n")
+            o.write("*********************Message Authenticity Analysis ***********************************\n\n")
+            o.write("- The email is from{}\n".format(messageObject.get_all("From")))
+            receivedHeaders=[x.replace('\n','') for x in messageObject.get_all("Received")]
+            sortedcReceivedHeaders=sorted([x.replace('\r','') for x in receivedHeaders],key=lambda x:datetime.strptime(re.findall(r'[^;]*;[^\d]+(.+\d)',x)[0],"%d %b %Y %H:%M:%S %z").isoformat())
+            firsthops=[]
+            for i in sortedcReceivedHeaders:
+                firsthops.append(i)
+                if any(j in i for j in ips):
+                    break
+            o.write("- The first hop/s in the email flow (MTA the message started from) \n   ++++{}\n".format("\n   ++++".join(firsthops)))
+            authResult=messageObject.get("Authentication-Results")
+            o.write("- Authentication Results header exists with the following results: \n{}\n".format(authResult)) if authResult !=None else o.write("- Authentication Results header doesn't exist !\n")
             o.write("- DKIM Verification pass\n") if dkim.verify(emlBinary) else o.write("- DKIM verification failed\n")
             cv, results, comment = dkim.arc_verify(emlBinary) 
             o.write("- ARC verification: cv=%s %s\n\n" % (cv, comment))
@@ -196,7 +208,7 @@ def main():
 ****************************************************************************\n')
             o.write("\n\nThanks for your support by using the tool! for any comments and issues please drop me a message on https://www.linkedin.com/in/moabdelrahman/ \n\n ")
     except Exception as e:
-        print("an error {} occured while trying to create the analysis and the decoded email files! please check your permissions".format(e))
+        print("an error {} occured while trying to create the analysis file! please check your permissions".format(e))
         exit(1)
     print("\nGreat!!! the IoAs extracted successfully please check {}_analysis.txt\n".format(fileName))
 if __name__=='__main__':
