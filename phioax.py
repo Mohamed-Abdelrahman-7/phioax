@@ -1,8 +1,8 @@
-import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse,vt,json,base64,dkim,sys
-from asyncore import write
-from email import message
+import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse,vt,json,base64,dkim
 from datetime import datetime
 from email import parser
+import dns.resolver
+from textwrap import wrap
 #function to load the eml from the path specified by the user 
 def eml_grabber(pth):
     """reads the eml file from the path specified and returns the filename and binary content of the file"""
@@ -47,7 +47,8 @@ def extract_ioa(emlClean):
     urls=[urllib.parse.unquote(x) for x in re.findall(r'https?(?:://|%3A%2F%2F)[^\s\"><]+',emlClean)]
     urlsFromSafeLinks= [urllib.parse.unquote(x) for x in  re.findall(r'safelinks.+?outlook\.com.+?(https?(?:://|%3A%2F%2F)[^\s\"><]+)','\n'.join(urls))]
     urlsFromFireeyeProtect=[urllib.parse.unquote(x) for x in re.findall(r'protect.+?fireeye\.com.+?(https?(?:://|%3A%2F%2F)[^\s\"><]+)','\n'.join(urls))]
-    return set(pubIps),set(urls),set(urlsFromSafeLinks),set(urlsFromFireeyeProtect)
+    urlsFromMimecastProtect=[urllib.parse.unquote(x) for x in re.findall(r'protect.+?mimecast\.com.+?(https?(?:://|%3A%2F%2F)[^\s\"><]+)','\n'.join(urls))]
+    return set(pubIps),set(urls),set(urlsFromSafeLinks),set(urlsFromFireeyeProtect),set(urlsFromMimecastProtect)
 #function to get a list of attachements and their corresponding file hashes [Optionally dump the attachments to your local storage]
 def hash_ex(eml,dumpPath):
     """get a list of attachements and their corresponding file hashes [Optionally dump the attachments to your local storage] if argument d (-d) is set by the user while excuting the script"""
@@ -130,7 +131,7 @@ def domain_intel_vt(client,hostname):
         domainObject=client.get_object("/domains/{}".format(hostname))
         domainReport="VT analysis: last dns records found for the domain are: \n {} \nstats: It's reported as harmless by {}, malicious by {}, suspicious by {} and undected by {}\n\
 the domain is registered by {} at {}\nlast https certificate for that domain issued by {} with a subject {} not after {} and not before {}"\
-                .format('\n'.join(["-{} record with value {} and ttl {}".format(*[record[key] for key in ['type','value','ttl']]) for record in domainObject.get("last_dns_records")])\
+                .format('\n'.join(["  -{} record with value {} and ttl {}".format(*[record[key] for key in ['type','value','ttl']]) for record in domainObject.get("last_dns_records")])\
                     ,*[domainObject.get('last_analysis_stats')[key] for key in ['harmless','malicious','suspicious','undetected']],domainObject.get('registrar'),\
                         datetime.isoformat(datetime.fromtimestamp(domainObject.get("creation_date"))) if domainObject.get("creation_date") !=None else "Unknown" \
                             ,domainObject.get("last_https_certificate")["issuer"]["O"],\
@@ -138,6 +139,35 @@ the domain is registered by {} at {}\nlast https certificate for that domain iss
     except Exception as e:
      domainReport="An error {} occured while trying to get domain information from VirusTotal\n".format(e)
     return domainReport
+def spf_fetcher(domain:str) -> tuple:
+    """takes the sender's domain and makes a query for the TXT record for that domain to get the IPs of authorized MTAs for the domain by ietrating through the SPF record 
+    it also returns the SPF fail policy whther hard or soft fail"""
+    def digger(domain):
+        spfEntriess=[]
+        authorizedMx=[]
+        txtRecord=dns.resolver.resolve(domain , 'TXT')
+        for entry in txtRecord:
+            if "spf" in str(entry):
+                spfEntriess.append(str(entry))
+        if len(spfEntriess) > 0:
+            for spfEntry in spfEntriess:
+                includes=re.findall(r'(?<=include:)[^\s]+',spfEntry)
+                if len(includes)>0:
+                    mxIps=re.findall(r'(?:(?<=ip4:)|(?<=ip6:))[^\s]+',spfEntry) 
+                    authorizedMx= mxIps + [digger(include) for include in includes]
+                else:
+                    authorizedMx=re.findall(r'(?:(?<=ip4:)|(?<=ip6:))[^\s]+',spfEntry)
+            return authorizedMx
+        else:
+            return None
+    def check_fail_action(domain):
+        failActions=[]
+        txtRecord=dns.resolver.resolve(domain , 'TXT')
+        for entry in txtRecord:
+            if "spf" in str(entry):
+                failActions+=re.findall(r'.all',str(entry))
+        return failActions
+    return digger(domain),check_fail_action(domain)
 def main():
     argP=argparse.ArgumentParser(description="This tool is developed to help SOC analysts extracting Indicator of Attack from a suspicious email to check them agianst  OSINT resources")
     argP.add_argument("-p","--path",required=True,type=str,help=">>> Mandatory: the path of the eml file")
@@ -145,7 +175,7 @@ def main():
     args=argP.parse_args()
     emlBinary,fileName,messageObject=eml_grabber(args.path)
     emlClean=quo_cleaner(messageObject)
-    ips,urls,urlsFromSafeLink,urlsFromFireeyeProtect=extract_ioa(emlClean)
+    ips,urls,urlsFromSafeLink,urlsFromFireeyeProtect,urlsFromMimecastProtect=extract_ioa(emlClean)
     nameHash=hash_ex(emlBinary,args.dump)
     isoDatetimes,timeDiff=datetimex(emlClean)
     hostNames=set(map(lambda x: urllib.parse.urlparse(x).hostname,(urls.union(urlsFromSafeLink)).union(urlsFromFireeyeProtect)))
@@ -157,7 +187,10 @@ def main():
     try:
         with open(fileName+'_anlysis.txt','wt') as o:
             o.write("*********************Message Authenticity Analysis ***********************************\n\n")
-            o.write("- The email is from{}\n".format(messageObject.get_all("From")))
+            fromSender=messageObject.get_all("From")[0]
+            fromDomain=re.search(r'(?<=@)[^>]+',fromSender)[0]
+            o.write("- The email is from {}\n".format(fromSender))
+            o.write("- Return Path is: {}\n".format(messageObject.get_all("Return-Path"))) if messageObject.get_all("Return-Path") !=None else o.write("- Return Path header doesn't exist\n")
             receivedHeaders=[x.replace('\n','') for x in messageObject.get_all("Received")]
             sortedcReceivedHeaders=sorted([x.replace('\r','') for x in receivedHeaders],key=lambda x:datetime.strptime(re.findall(r'[^;]*;[^\d]+(.+\d)',x)[0],"%d %b %Y %H:%M:%S %z").isoformat())
             firsthops=[]
@@ -167,10 +200,19 @@ def main():
                     break
             o.write("- The first hop/s in the email flow (MTA the message started from) \n   ++++{}\n".format("\n   ++++".join(firsthops)))
             authResult=messageObject.get("Authentication-Results")
-            o.write("- Authentication Results header exists with the following results: \n{}\n".format(authResult)) if authResult !=None else o.write("- Authentication Results header doesn't exist !\n")
-            o.write("- DKIM Verification pass\n") if dkim.verify(emlBinary) else o.write("- DKIM verification failed\n")
+            o.write("- Authentication Results header exists with the following results: \n  {}\n".format(authResult)) if authResult !=None else o.write("- Authentication Results header doesn't exist !\n")
+            o.write("- Manual DKIM Verification pass\n") if dkim.verify(emlBinary) else o.write("- Manual DKIM verification failed\n")
             cv, results, comment = dkim.arc_verify(emlBinary) 
-            o.write("- ARC verification: cv=%s %s\n\n" % (cv, comment))
+            o.write("- Manual ARC verification: cv=%s %s\n" % (cv, comment))
+            if spf_fetcher(fromDomain)[0] != None:
+                o.write("- Getting Authorized MXs and fail action from SPF entry in  Domain DNS TXT record\n\
+    MX:\n{}\n".format('\n'.join(wrap(str(spf_fetcher(fromDomain)[0]),width=175,initial_indent='       ',subsequent_indent='       '))))
+                o.write("\n       SPF violation policy for the domain {} is hard fail\n\n".format(fromDomain)) if '~all' not in spf_fetcher(fromDomain)[1] else o.write("\n     SPF violation policy for the domain {} is soft fail\n\n".format(fromDomain))
+            else:
+                o.write("- Couldn't get  Authorized MXs from SPF entry in  Domain DNS TXT record\n") 
+            o.write("- mail client IP address: {}\n".format(messageObject.get_all("X-Originating-IP")))         
+            o.write("- Interesting Microsoft headers:\n\
+    {}\n    {}\n    {}\n\n".format(*[x+': '+messageObject.get_all(x)[0] if messageObject.get_all(x) !=None else x+": doesn' exist" for x in ["x-ms-exchange-organization-originalclientipaddress","x-ms-exchange-organization-originalserveripaddress","X-MS-Has-Attach"]]))
             o.write("*********************list of IPs extracted***********************************\n\n")
             if vtClient !=None:
                 for ip in ips:
@@ -185,6 +227,8 @@ def main():
             [o.write(url+'\n') for url in urlsFromSafeLink]
             o.write('\n**************list of URLs extracted from fireeye protect links****************\n\n')
             [o.write(url+'\n') for url in urlsFromFireeyeProtect]
+            o.write('\n**************list of URLs extracted from mimecast protect links****************\n\n')
+            [o.write(url+'\n') for url in urlsFromMimecastProtect]
             o.write('\n*****************list of hostnems extracted*********************************\n\n')
             if vtClient !=None:
                 for hostname in hostNames:
