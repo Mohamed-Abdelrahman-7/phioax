@@ -1,2 +1,3 @@
 vt-py==0.17.1
 dkimpy==1.0.5
+dnspython==2.2.1
