@@ -187,12 +187,15 @@ def main():
     try:
         with open(fileName+'_anlysis.txt','wt') as o:
             o.write("*********************Message Authenticity Analysis ***********************************\n\n")
-            fromSender=messageObject.get_all("From")[0]
+            fromSender=messageObject.get_all("From")[0] if messageObject.get_all("From") !=None else ''
             fromDomain=re.search(r'(?<=@)[^>]+',fromSender)[0]
-            o.write("- The email is from {}\n".format(fromSender))
+            o.write("- The email is sent from: {}\n".format(fromSender))
             o.write("- Return Path is: {}\n".format(messageObject.get_all("Return-Path"))) if messageObject.get_all("Return-Path") !=None else o.write("- Return Path header doesn't exist\n")
             receivedHeaders=[x.replace('\n','') for x in messageObject.get_all("Received")]
-            sortedcReceivedHeaders=sorted([x.replace('\r','') for x in receivedHeaders],key=lambda x:datetime.strptime(re.findall(r'[^;]*;[^\d]+(.+\d)',x)[0],"%d %b %Y %H:%M:%S %z").isoformat())
+            if len(receivedHeaders) > 1:
+                sortedcReceivedHeaders=sorted([x.replace('\r','') for x in receivedHeaders],key=lambda x:datetime.strptime(re.findall(r'[^;]*;[^\d]+(.+\d)',x)[0],"%d %b %Y %H:%M:%S %z").isoformat())
+            else:
+                sortedcReceivedHeaders=receivedHeaders
             firsthops=[]
             for i in sortedcReceivedHeaders:
                 firsthops.append(i)
