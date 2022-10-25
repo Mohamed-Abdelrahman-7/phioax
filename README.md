@@ -51,9 +51,9 @@ Usage:
 2) optimize the script to  iterate through a directory containing multiple eml files and perform the analysis for all of them
 3) process msg formatted messages
 4) automated check for the sender/s against email breach and email pastes datasets of have I been Pwned
-5) query sender/s dns for spf record and put them in the output file 
-6) automated check on URLs to detect abnormal behaviors e.g. redirections or file download 
-7) support IPv6 and idna domains extraction
+5) automated check on URLs to detect abnormal behaviors e.g. redirections or file download 
+6) support IPv6 and idna domains extraction
+7) Integrate Checking against SpamHaus various DataSets(Zen and  DBL)
 
 
 
