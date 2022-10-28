@@ -36,7 +36,7 @@ def extract_ioa(emlClean):
     ipsLs=re.findall(r'(?:\d{1,3}\.){3}\d{1,3}',emlClean)
     pubIps=[]
     for i in ipsLs:
-        if  i.startswith(("192.168.","10.","255.255.255.255")):
+        if  i.startswith(("192.168.","10.","255.255.255.255","127.0.0.1")):
             continue
         elif  i.startswith("172") and 16<=int(i.split('.')[1])<32:
                 continue
@@ -68,22 +68,10 @@ def hash_ex(eml,dumpPath):
                      print("an error {} occured while dumping{} and the attachments won't be dumped!!! please check your write permission on the specified directory".format(e,fileName))
     return nameHash
 # function to extract datetimes to detect any datetime anomlaies
-def datetimex(eml):
+def datetimex(eml:str) -> tuple:
    """extracts all times found in the email and converts them to readable ISO formatted times, so the analyst can find any time anomalies
    returns: iso timestamps [list] and the time delta between earler and older timestamps obverved "string" """
-   rDatetime= re.findall(r'(?<=Received)[^;]*;[^\d]+(.+\d)',eml)
-   dDatetime=re.findall(r'(?<=Date)[^,]*,[^\d]+(.+\d)',eml)
-   isoDatetimes=[]
-   for i in rDatetime:
-     try:
-        isoDatetimes.append(datetime.strptime(i,"%d %b %Y %H:%M:%S %z").isoformat())
-     except:
-        continue
-   for j in dDatetime:
-    try:
-            isoDatetimes.append(datetime.strptime(j,"%d %b %Y %H:%M:%S %z").isoformat())
-    except:
-            continue
+   isoDatetimes=[datetime.strptime(x,"%d %b %Y %H:%M:%S %z").isoformat() for x in re.findall(r'\d{1,2}\s\w{3}\s\d{4}\s(?:\d{1,2}:){2}\d{1,2}\s.\d{1,4}',eml)]
    isoDatetimes=sorted(isoDatetimes,key=datetime.fromisoformat)
    timeDiff="time deviation of observed timestamps is {} days and {} seconds\n".format((datetime.fromisoformat(isoDatetimes[-1])-datetime.fromisoformat(isoDatetimes[0])).days,\
     (datetime.fromisoformat(isoDatetimes[-1])-datetime.fromisoformat(isoDatetimes[0])).seconds) 
@@ -193,7 +181,7 @@ def main():
             o.write("- Return Path is: {}\n".format(messageObject.get_all("Return-Path"))) if messageObject.get_all("Return-Path") !=None else o.write("- Return Path header doesn't exist\n")
             receivedHeaders=[x.replace('\n','') for x in messageObject.get_all("Received")]
             if len(receivedHeaders) > 1:
-                sortedcReceivedHeaders=sorted([x.replace('\r','') for x in receivedHeaders],key=lambda x:datetime.strptime(re.findall(r'[^;]*;[^\d]+(.+\d)',x)[0],"%d %b %Y %H:%M:%S %z").isoformat())
+                sortedcReceivedHeaders=sorted([x.replace('\r','') for x in receivedHeaders],key=lambda x:datetime.strptime(re.findall(r'\d{1,2}\s\w{3}\s\d{4}\s(?:\d{1,2}:){2}\d{1,2}\s.\d{1,4}',x)[0],"%d %b %Y %H:%M:%S %z").isoformat())
             else:
                 sortedcReceivedHeaders=receivedHeaders
             firsthops=[]
