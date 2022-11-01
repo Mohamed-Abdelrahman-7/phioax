@@ -1,5 +1,8 @@
 import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse,vt,json,base64,dkim
+from typing import Tuple
 from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
 from email import parser
 import dns.resolver
 from textwrap import wrap
@@ -156,6 +159,26 @@ def spf_fetcher(domain:str) -> tuple:
                 failActions+=re.findall(r'.all',str(entry))
         return failActions
     return digger(domain),check_fail_action(domain)
+def thread_analyze(index:str) ->tuple:
+    try:
+        indexBytes=base64.b64decode(index)
+        childNumber=int((len(indexBytes)-22)/5)
+        filetimeValueDecimal=int(bytes(bytearray(indexBytes[:6])+bytearray(2)).hex(),16)
+        threadCreationTime=datetime.utcfromtimestamp((filetimeValueDecimal-116444736000000000)/10000000)
+        childsTimeDelta={}
+        if childNumber > 0:
+            for i in range(childNumber):
+                childBytes=indexBytes[(22+i*5):22+((i+1)*5)]
+                childDecimal=int(childBytes.hex(),16)
+                if childDecimal & (2**39) ==0:
+                    afterAddingDiscardedBits= childDecimal & 0b1111111111111111111111111111111100000000
+                    afterShifting=afterAddingDiscardedBits << 10
+                    childsTimeDelta[i+1]=afterShifting/(10**7)
+                else:
+                    continue
+        return int(childNumber),threadCreationTime,childsTimeDelta      
+    except:
+        return None,None,None
 def main():
     argP=argparse.ArgumentParser(description="This tool is developed to help SOC analysts extracting Indicator of Attack from a suspicious email to check them agianst  OSINT resources")
     argP.add_argument("-p","--path",required=True,type=str,help=">>> Mandatory: the path of the eml file")
@@ -177,7 +200,7 @@ def main():
             o.write("*********************Message Authenticity Analysis ***********************************\n\n")
             fromSender=messageObject.get_all("From")[0] if messageObject.get_all("From") !=None else ''
             fromDomain=re.search(r'(?<=@)[^>]+',fromSender)[0]
-            o.write("- The email is sent from: {}\n".format(fromSender))
+            o.write("- The email is sent from: {} with a subject: {}\n".format(fromSender,messageObject.get("Subject")))
             o.write("- Return Path is: {}\n".format(messageObject.get_all("Return-Path"))) if messageObject.get_all("Return-Path") !=None else o.write("- Return Path header doesn't exist\n")
             receivedHeaders=[x.replace('\n','') for x in messageObject.get_all("Received")]
             if len(receivedHeaders) > 1:
@@ -196,14 +219,41 @@ def main():
             cv, results, comment = dkim.arc_verify(emlBinary) 
             o.write("- Manual ARC verification: cv=%s %s\n" % (cv, comment))
             if spf_fetcher(fromDomain)[0] != None:
-                o.write("- Getting Authorized MXs and fail action from SPF entry in  Domain DNS TXT record\n\
+                o.write("- Getting Authorized MXs' IPs and fail action from SPF entry in  Domain DNS TXT record\n\
     MX:\n{}\n".format('\n'.join(wrap(str(spf_fetcher(fromDomain)[0]),width=175,initial_indent='       ',subsequent_indent='       '))))
                 o.write("\n       SPF violation policy for the domain {} is hard fail\n\n".format(fromDomain)) if '~all' not in spf_fetcher(fromDomain)[1] else o.write("\n     SPF violation policy for the domain {} is soft fail\n\n".format(fromDomain))
             else:
-                o.write("- Couldn't get  Authorized MXs from SPF entry in  Domain DNS TXT record\n") 
+                o.write("- Couldn't get  Authorized MXs from SPF entry in  Domain DNS TXT record\n")
+            o.write("- Getting MX record for the domain {}\n".format(fromDomain))
+            o.write("   "+"\n   ".join([str(x) for x in dns.resolver.resolve(fromDomain,"MX")]))
             o.write("- mail client IP address: {}\n".format(messageObject.get_all("X-Originating-IP")))         
             o.write("- Interesting Microsoft headers:\n\
     {}\n    {}\n    {}\n\n".format(*[x+': '+messageObject.get_all(x)[0] if messageObject.get_all(x) !=None else x+": doesn' exist" for x in ["x-ms-exchange-organization-originalclientipaddress","x-ms-exchange-organization-originalserveripaddress","X-MS-Has-Attach"]]))
+            o.write("*********************Email Thread Analysis***********************************\n\n")
+            o.write(" Thread topic is {}\n\n".format(messageObject.get("Thread-Topic")))
+            threadIndex=messageObject.get("Thread-Index")
+            if threadIndex !=None:
+                o.write(" Outlook Thread Index header exists and by analyzing it we found:\n")
+                childNumber,threadCreationTime,childsTimeDelta=thread_analyze(threadIndex)
+                if threadCreationTime !=None:
+                    o.write("   This email is the child number {} of the email thread\n".format(childNumber)) if childNumber >0 else o.write("   This email is the first email in the Thread\n")
+                    o.write("   The first email in the thread (Thread creation time) was created at {} UTC\n".format(datetime.isoformat(threadCreationTime)))
+                    o.write("   Time Delta between the creation of the first email in the thread and the begining of email transfer is:\n\
+            {} days and {} seconds\n\n".format(((((datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc)).replace(tzinfo=None))-threadCreationTime).days,(((datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc)).replace(tzinfo=None)-threadCreationTime).seconds))
+                    if childNumber > 0:
+                        o.write("   Childs time difference and calculated time of creation:\n")
+                        timeDiffernce=timedelta(seconds=0)
+                        for i in childsTimeDelta.keys():
+                            timeDiffernce+=timedelta(seconds=childsTimeDelta[i])
+                            o.write("       Child No: {}\n".format(i))
+                            o.write("        Time Difference:{} minutes and {} seconds\n".format(childsTimeDelta[i]//60,childsTimeDelta[i]%60))
+                            o.write("        Calculated time of creation: {} UTC\n\n".format(threadCreationTime+timeDiffernce))
+                        o.write("   Time difference between creating this email (the last child) and the begining of email transfer is: {} days and {} seconds\n\n".format(((((datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc)).replace(tzinfo=None))-(threadCreationTime+timeDiffernce)).days,\
+                            (((datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc)).replace(tzinfo=None)-(threadCreationTime+timeDiffernce)).seconds))
+                else:
+                    o.write("   Thread index analysis couldn't be completed !!\n\n")            
+            else:
+                o.write(" Outlook Thread Index header doesn't exist\n\n")
             o.write("*********************list of IPs extracted***********************************\n\n")
             if vtClient !=None:
                 for ip in ips:

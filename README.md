@@ -54,6 +54,16 @@ Usage:
 5) automated check on URLs to detect abnormal behaviors e.g. redirections or file download 
 6) support IPv6 and idna domains extraction
 7) Integrate Checking against SpamHaus various DataSets(Zen and  DBL)
+  
+    
+ 
+# References: 
+* https://developers.virustotal.com/reference
+* https://virustotal.github.io/vt-py/api
+* https://www.meridiandiscovery.com/how-to/e-mail-conversation-index-metadata-computer-forensics/
+* https://gist.github.com/Mostafa-Hamdy-Elgiar/9714475f1b3bc224ea063af81566d873#file-filetimes-py-L75
+
+
 
 
 
