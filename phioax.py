@@ -1,5 +1,4 @@
 import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse,vt,json,base64,dkim
-from typing import Tuple
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
