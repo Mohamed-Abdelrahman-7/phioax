@@ -159,11 +159,12 @@ def spf_fetcher(domain:str) -> tuple:
         return failActions
     return digger(domain),check_fail_action(domain)
 def thread_analyze(index:str) ->tuple:
+    """Takes the base64 value of Thread-Index header and returns the number of childs in the mail thread, the thread's first email creation time and time differences of the childs """
     try:
         indexBytes=base64.b64decode(index)
         childNumber=int((len(indexBytes)-22)/5)
         filetimeValueDecimal=int(bytes(bytearray(indexBytes[:6])+bytearray(2)).hex(),16)
-        threadCreationTime=datetime.utcfromtimestamp((filetimeValueDecimal-116444736000000000)/10000000)
+        threadCreationTime=(datetime.utcfromtimestamp((filetimeValueDecimal-116444736000000000)/10000000)).replace(tzinfo=timezone.utc)
         childsTimeDelta={}
         if childNumber > 0:
             for i in range(childNumber):
@@ -228,17 +229,17 @@ def main():
             o.write("- mail client IP address: {}\n".format(messageObject.get_all("X-Originating-IP")))         
             o.write("- Interesting Microsoft headers:\n\
     {}\n    {}\n    {}\n\n".format(*[x+': '+messageObject.get_all(x)[0] if messageObject.get_all(x) !=None else x+": doesn' exist" for x in ["x-ms-exchange-organization-originalclientipaddress","x-ms-exchange-organization-originalserveripaddress","X-MS-Has-Attach"]]))
-            o.write("*********************Email Thread Analysis***********************************\n\n")
-            o.write(" Thread topic is {}\n\n".format(messageObject.get("Thread-Topic")))
+            o.write("*********************Outlook Email Thread Analysis***********************************\n\n")
+            o.write(" Thread topic is {}\n\n".format(messageObject.get("Thread-Topic"))) if messageObject.get("Thread-Topic") !=None else o.write(" Thread topic header doesn't exist\n\n")
             threadIndex=messageObject.get("Thread-Index")
-            if threadIndex !=None:
+            if threadIndex:
                 o.write(" Outlook Thread Index header exists and by analyzing it we found:\n")
                 childNumber,threadCreationTime,childsTimeDelta=thread_analyze(threadIndex)
-                if threadCreationTime !=None:
+                if all(x!=None for x in [childNumber,threadCreationTime,childsTimeDelta]):
                     o.write("   This email is the child number {} of the email thread\n".format(childNumber)) if childNumber >0 else o.write("   This email is the first email in the Thread\n")
-                    o.write("   The first email in the thread (Thread creation time) was created at {} UTC\n".format(datetime.isoformat(threadCreationTime)))
-                    o.write("   Time Delta between the creation of the first email in the thread and the begining of email transfer is:\n\
-            {} days and {} seconds\n\n".format(((((datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc)).replace(tzinfo=None))-threadCreationTime).days,(((datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc)).replace(tzinfo=None)-threadCreationTime).seconds))
+                    o.write("   The first email in the thread (Thread creation time) was created at {}\n".format(datetime.isoformat(threadCreationTime)))
+                    o.write("   Time Delta between the creation of the first email in the thread and the begining of this email transfer is:\n\
+            {} days and {} seconds\n\n".format(((((datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc)))-threadCreationTime).days,(((datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc))-threadCreationTime).seconds))
                     if childNumber > 0:
                         o.write("   Childs time difference and calculated time of creation:\n")
                         timeDiffernce=timedelta(seconds=0)
@@ -247,14 +248,14 @@ def main():
                             o.write("       Child No: {}\n".format(i))
                             o.write("        Time Difference:{} minutes and {} seconds\n".format(childsTimeDelta[i]//60,childsTimeDelta[i]%60))
                             o.write("        Calculated time of creation: {} UTC\n\n".format(threadCreationTime+timeDiffernce))
-                        o.write("   Time difference between creating this email (the last child) and the begining of email transfer is: {} days and {} seconds\n\n".format(((((datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc)).replace(tzinfo=None))-(threadCreationTime+timeDiffernce)).days,\
-                            (((datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc)).replace(tzinfo=None)-(threadCreationTime+timeDiffernce)).seconds))
+                        o.write("   Time difference between creating this email (the last child) and the begining of email transfer is: {} days and {} seconds\n\n".format(((((datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc)))-(threadCreationTime+timeDiffernce)).days,\
+                            (((datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc))-(threadCreationTime+timeDiffernce)).seconds))
                 else:
                     o.write("   Thread index analysis couldn't be completed !!\n\n")            
             else:
                 o.write(" Outlook Thread Index header doesn't exist\n\n")
             o.write("*********************list of IPs extracted***********************************\n\n")
-            if vtClient !=None:
+            if vtClient :
                 for ip in ips:
                     o.write('>>>'+ip+'\n\n')
                     reputation,sslInfo,hosts=ip_intel_vt(vtClient,ip)
@@ -270,7 +271,7 @@ def main():
             o.write('\n**************list of URLs extracted from mimecast protect links****************\n\n')
             [o.write(url+'\n') for url in urlsFromMimecastProtect]
             o.write('\n*****************list of hostnems extracted*********************************\n\n')
-            if vtClient !=None:
+            if vtClient :
                 for hostname in hostNames:
                     o.write('>>>'+hostname+'\n')
                     domainReport=domain_intel_vt(vtClient,hostname)
@@ -278,16 +279,51 @@ def main():
             else:
                 [o.write(hostname+'\n') for hostname in hostNames] 
             o.write('\n*************list of attachmnets and their filehashes extracted*************\n\n')
-            if vtClient !=None:
+            if vtClient:
                 for key in nameHash.keys():
                     o.write(key+": {}\n".format(nameHash[key])+'\n')
                     filehashReport=hash_intel_vt(vtClient,nameHash[key])
                     o.write(filehashReport+'\n\n')
             else:
                 [o.write(key+": {}\n".format(nameHash[key])) for key in nameHash.keys()]
-            o.write('\n*****************list of timestamps extracted*******************************\n\n')
-            [o.write(isodatetime+'\n') for isodatetime in isoDatetimes]
-            o.write('\n'+timeDiff)
+            o.write('\n*****************timestamps analysis*******************************\n\n')
+            o.write("Timestamps from Received and Date haeders\n")
+            [o.write("  "+isodatetime+'\n') for isodatetime in isoDatetimes]
+            o.write('\n '+timeDiff+'\n\n')
+            xReceived=messageObject.get_all("X-Received")
+            if xReceived:
+                xREpoch=[]
+                for entry in xReceived:
+                    xREpoch+=re.findall(r'(?<=\.)\d+?(?=;)',entry)
+                try:
+                    xRTimestamps=sorted([(datetime.utcfromtimestamp(int(x)/1000)).replace(tzinfo=timezone.utc) for x in xREpoch])
+                except: xRTimestamps=None
+                if xRTimestamps:
+                    o.write("X-Received Headers exists. Extracted timeStamps from SMTP ID:\n")
+                    [o.write("   {}\n".format(datetime.isoformat(x.replace(tzinfo=timezone.utc)))) for x in xRTimestamps]
+                    o.write("   The time difference between the earlier timestamp in  X-Received headers  and the earlier timestamp in Recives & Date headers is {} seconds \n\n".format(\
+                        (((xRTimestamps[0] - (datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc))).total_seconds())))
+            contentType,gmailWebAPI=[],None
+            for key in messageObject.keys():
+                if "X-Google" in key:
+                    for part in messageObject.walk():
+                        contentType.append(part.get("Content-Type"))
+                    gmailWebAPI=True if "mail.gmail.com" in messageObject.get("Message-ID") else False
+                    break
+            if gmailWebAPI:
+                boundaryTimestamps=[]
+                o.write("The message is sent using Gmail web or API. Extracted timestamps from email boundaries:\n")
+                for content in contentType:
+                    try:
+                        timePart=re.findall(r'(?<=boundary=\"0{12}).{14}(?=..\")',content)[0]
+                        boundaryTimestamps.append(datetime.utcfromtimestamp(int(str(int(timePart[6:]+timePart[:6],16))[:13])/1000))
+                    except:
+                        continue
+                if len(boundaryTimestamps)>0:
+                    boundaryTimestamps=sorted(boundaryTimestamps)
+                    [o.write("   {}\n".format(datetime.isoformat(x.replace(tzinfo=timezone.utc)))) for x in boundaryTimestamps]
+                    o.write("   The time difference between the the earliest timestamp in message boundaries and the start of transmitting the message is: {} seconds\n\n".format(\
+                       (((boundaryTimestamps[0]).replace(tzinfo=timezone.utc) - ((datetime.fromisoformat(isoDatetimes[0])).astimezone(timezone.utc))).total_seconds())))
             o.write('\n****************************************************************************\n\
 ****************************************************************************\n')
             o.write("\n\nThanks for your support by using the tool! for any comments and issues please drop me a message on https://www.linkedin.com/in/moabdelrahman/ \n\n ")
