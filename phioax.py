@@ -33,6 +33,16 @@ def quo_cleaner(messageObject):
             part.set_payload(quopri.decodestring(part.get_payload()).decode())
     return messageObject.as_string() 
 #function to extract public IPs and urls
+def encoded_headers_finder(messageObject:email.message.Message) -> tuple:
+    """finds any headers with encoded values takes email.message.Message Object and returns a tuple of 2 lists one for qpencoded headers 
+    and the other one for b64encoded"""
+    quotedPrintableHeaders,b64EncodedHeaders=[],[]
+    for item in messageObject.items():
+        if "?Q?" in item[1]:
+            quotedPrintableHeaders.append(item)
+        elif "?B?" in item[1]:
+            b64EncodedHeaders.append(item)
+    return quotedPrintableHeaders,b64EncodedHeaders
 def extract_ioa(emlClean):
     """extracts public IPs and URLs found in the email content"""
     ipsLs=re.findall(r'(?:\d{1,3}\.){3}\d{1,3}',emlClean)
@@ -135,28 +145,36 @@ def spf_fetcher(domain:str) -> tuple:
     def digger(domain):
         spfEntriess=[]
         authorizedMx=[]
-        txtRecord=dns.resolver.resolve(domain , 'TXT')
-        for entry in txtRecord:
-            if "spf" in str(entry):
-                spfEntriess.append(str(entry))
-        if len(spfEntriess) > 0:
-            for spfEntry in spfEntriess:
-                includes=re.findall(r'(?<=include:)[^\s]+',spfEntry)
-                if len(includes)>0:
-                    mxIps=re.findall(r'(?:(?<=ip4:)|(?<=ip6:))[^\s]+',spfEntry) 
-                    authorizedMx= mxIps + [digger(include) for include in includes]
-                else:
-                    authorizedMx=re.findall(r'(?:(?<=ip4:)|(?<=ip6:))[^\s]+',spfEntry)
-            return authorizedMx
-        else:
+        try:
+            txtRecord=dns.resolver.resolve(domain , 'TXT')
+            for entry in txtRecord:
+                if "spf" in str(entry):
+                    spfEntriess.append(str(entry))
+            if len(spfEntriess) > 0:
+                for spfEntry in spfEntriess:
+                    includes=re.findall(r'(?<=include:)[^\s]+',spfEntry)
+                    if len(includes)>0:
+                        mxIps=re.findall(r'(?:(?<=ip4:)|(?<=ip6:))[^\s]+',spfEntry) 
+                        authorizedMx= mxIps + [digger(include) for include in includes]
+                    else:
+                        authorizedMx=re.findall(r'(?:(?<=ip4:)|(?<=ip6:))[^\s]+',spfEntry)
+                return authorizedMx
+            else:
+                return None
+        except Exception as e:
+            print(e)
             return None
+
     def check_fail_action(domain):
         failActions=[]
-        txtRecord=dns.resolver.resolve(domain , 'TXT')
-        for entry in txtRecord:
-            if "spf" in str(entry):
-                failActions+=re.findall(r'.all',str(entry))
-        return failActions
+        try:
+            txtRecord=dns.resolver.resolve(domain , 'TXT')
+            for entry in txtRecord:
+                if "spf" in str(entry):
+                    failActions+=re.findall(r'.all',str(entry))
+            return failActions
+        except:
+            return None
     return digger(domain),check_fail_action(domain)
 def thread_analyze(index:str) ->tuple:
     """Takes the base64 value of Thread-Index header and returns the number of childs in the mail thread, the thread's first email creation time and time differences of the childs """
@@ -199,7 +217,7 @@ def main():
         with open(fileName+'_anlysis.txt','wt') as o:
             o.write("*********************Message Authenticity Analysis ***********************************\n\n")
             fromSender=messageObject.get_all("From")[0] if messageObject.get_all("From") !=None else ''
-            fromDomain=re.search(r'(?<=@)[^>]+',fromSender)[0]
+            fromDomain=re.search(r'(?<=@)[A-Za-z\-\.0-9]+',fromSender)[0]
             o.write("- The email is sent from: {} with a subject: {}\n".format(fromSender,messageObject.get("Subject")))
             o.write("- Return Path is: {}\n".format(messageObject.get_all("Return-Path"))) if messageObject.get_all("Return-Path") !=None else o.write("- Return Path header doesn't exist\n")
             receivedHeaders=[x.replace('\n','') for x in messageObject.get_all("Received")]
@@ -219,8 +237,8 @@ def main():
             cv, results, comment = dkim.arc_verify(emlBinary) 
             o.write("- Manual ARC verification: cv=%s %s\n" % (cv, comment))
             if spf_fetcher(fromDomain)[0] != None:
-                o.write("- Getting Authorized MXs' IPs and fail action from SPF entry in  Domain DNS TXT record\n\
-    MX:\n{}\n".format('\n'.join(wrap(str(spf_fetcher(fromDomain)[0]),width=175,initial_indent='       ',subsequent_indent='       '))))
+                o.write("- Getting Authorized MXs' IPs and fail action from SPF entry in {} Domain DNS TXT record\n\
+    MX:\n{}\n".format(fromDomain,'\n'.join(wrap(str(spf_fetcher(fromDomain)[0]),width=175,initial_indent='       ',subsequent_indent='       '))))
                 o.write("\n       SPF violation policy for the domain {} is hard fail\n\n".format(fromDomain)) if '~all' not in spf_fetcher(fromDomain)[1] else o.write("\n     SPF violation policy for the domain {} is soft fail\n\n".format(fromDomain))
             else:
                 o.write("- Couldn't get  Authorized MXs from SPF entry in  Domain DNS TXT record\n")
@@ -254,6 +272,24 @@ def main():
                     o.write("   Thread index analysis couldn't be completed !!\n\n")            
             else:
                 o.write(" Outlook Thread Index header doesn't exist\n\n")
+            o.write("*********************Check encoded headers existence***********************************\n\n")
+            quopriHeaders,b64EncHeaders=encoded_headers_finder(messageObject)
+            if len(quopriHeaders):
+                o.write("There are quoted prinatble encoded headers!!:\n")
+                for i in quopriHeaders:
+                    o.write(f"- {i} \n  ")
+                    try:
+                        o.write(">>>>"+quopri.decodestring(re.findall(r'(?<=\?Q\?)[^?]+',i[1])[0]).decode('UTF-8')+"\n")
+                    except:
+                        pass
+            elif len(b64EncHeaders):
+                o.write("There are base64 encoded headers!!:\n")
+                for i in b64EncHeaders:
+                    o.write(f"- {i} \n  ")
+                    try:
+                        o.write(">>>>"+base64.b64decode((re.findall(r'(?<=\?B\?)[^?]+',i[1])[0]).encode()).decode()+"\n")
+                    except:
+                        pass
             o.write("*********************list of IPs extracted***********************************\n\n")
             if vtClient :
                 for ip in ips:
