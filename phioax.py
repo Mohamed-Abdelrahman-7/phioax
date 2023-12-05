@@ -1,3 +1,11 @@
+"""
+Note: This script is provided as-is, without any warranty or guarantee of fitness. 
+While I have made every effort to ensure that it is free of bugs and errors, I cannot guarantee that it will work flawlessly on every 
+system or in every situation, hence an understanding of the script's functionality to modify it to customize this script to their liking 
+before using it difinelty will be good ;). 
+
+"""
+# Import necessary modules
 import  argparse,quopri,re,hashlib,email,os,urllib,urllib.parse,vt,json,base64,dkim
 from datetime import datetime
 from datetime import timedelta
@@ -5,6 +13,8 @@ from datetime import timezone
 from email import parser
 import dns.resolver
 from textwrap import wrap
+
+# Define functions
 #function to load the eml from the path specified by the user 
 def eml_grabber(pth):
     """reads the eml file from the path specified and returns the filename and binary content of the file"""
@@ -27,10 +37,13 @@ def quo_cleaner(messageObject):
     """decodes base64 and quoted printable encoded email parts 
     takes email.message object and returns a string of the message after cleaning """
     for part in messageObject.walk():
-        if "text" in part.get_content_type() and part.get("Content-Transfer-Encoding") == "base64":
-            part.set_payload(base64.b64decode(part.get_payload().encode()).decode())
-        elif "text" in part.get_content_type() and part.get("Content-Transfer-Encoding") == "quoted-printable":
-            part.set_payload(quopri.decodestring(part.get_payload()).decode())
+        try:
+            if "text" in part.get_content_type() and part.get("Content-Transfer-Encoding") == "base64":
+                part.set_payload(base64.b64decode(part.get_payload().encode()).decode())
+            elif "text" in part.get_content_type() and part.get("Content-Transfer-Encoding") == "quoted-printable":
+                part.set_payload(quopri.decodestring(part.get_payload()).decode())
+        except:
+            pass
     return messageObject.as_string() 
 #function to extract public IPs and urls
 def encoded_headers_finder(messageObject:email.message.Message) -> tuple:
