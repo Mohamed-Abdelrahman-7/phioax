@@ -38,7 +38,7 @@ def quo_cleaner(messageObject):
     takes email.message object and returns a string of the message after cleaning """
     for part in messageObject.walk():
         try:
-            #this is area of future development to detect other encoding like windows 1252
+            #this is area of future development to detect and decode other encoding like windows 1252
             if "text" in part.get_content_type() and part.get("Content-Transfer-Encoding") == "base64":
                 part.set_payload(base64.b64decode(part.get_payload().encode()).decode())
             elif "text" in part.get_content_type() and part.get("Content-Transfer-Encoding") == "quoted-printable":
