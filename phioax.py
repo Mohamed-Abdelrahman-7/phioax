@@ -32,7 +32,7 @@ def eml_grabber(pth):
     except Exception as e:
         print("an error {} occured while reading the file !!!".format(e))
         exit(1)
-# defining a fucntion to decode  quoted printable characters and return a clean version of the eml file
+# defining a fucntion to decode quoted printable characters and return a clean version of the eml file
 def quo_cleaner(messageObject):
     """decodes base64 and quoted printable encoded email parts 
     takes email.message object and returns a string of the message after cleaning """
