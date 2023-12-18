@@ -234,17 +234,21 @@ def main():
             fromDomain=re.search(r'(?<=@)[A-Za-z\-\.0-9]+',fromSender)[0]
             o.write("- The email is sent from: {} with a subject: {}\n".format(fromSender,messageObject.get("Subject")))
             o.write("- Return Path is: {}\n".format(messageObject.get_all("Return-Path"))) if messageObject.get_all("Return-Path") !=None else o.write("- Return Path header doesn't exist\n")
-            receivedHeaders=[x.replace('\n','') for x in messageObject.get_all("Received")]
-            if len(receivedHeaders) > 1:
-                sortedcReceivedHeaders=sorted([x.replace('\r','') for x in receivedHeaders],key=lambda x:datetime.strptime(re.findall(r'\d{1,2}\s\w{3}\s\d{4}\s(?:\d{1,2}:){2}\d{1,2}\s.\d{1,4}',x)[0],"%d %b %Y %H:%M:%S %z").isoformat())
-            else:
-                sortedcReceivedHeaders=receivedHeaders
-            firsthops=[]
-            for i in sortedcReceivedHeaders:
-                firsthops.append(i)
-                if any(j in i for j in ips):
-                    break
-            o.write("- The first hop/s in the email flow (MTA the message started from) \n   ++++{}\n".format("\n   ++++".join(firsthops)))
+            try:
+                receivedHeaders=[x.replace('\n','') for x in messageObject.get_all("Received")]
+                if len(receivedHeaders) > 1:
+                    sortedcReceivedHeaders=sorted([x.replace('\r','') for x in receivedHeaders],key=lambda x:datetime.strptime(re.findall(r'\d{1,2}\s\w{3}\s\d{4}\s(?:\d{1,2}:){2}\d{1,2}\s.\d{1,4}',x)[0],"%d %b %Y %H:%M:%S %z").isoformat())
+                else:
+                    sortedcReceivedHeaders=receivedHeaders
+                firsthops=[]
+                for i in sortedcReceivedHeaders:
+                    firsthops.append(i)
+                    if any(j in i for j in ips):
+                        break
+                o.write("- The first hop/s in the email flow (MTA the message started from) \n   ++++{}\n".format("\n   ++++".join(firsthops)))
+            except:
+                o.write("- No Received Headers are found \n")
+        
             authResult=messageObject.get("Authentication-Results")
             o.write("- Authentication Results header exists with the following results: \n  {}\n".format(authResult)) if authResult !=None else o.write("- Authentication Results header doesn't exist !\n")
             o.write("- Manual DKIM Verification pass\n") if dkim.verify(emlBinary) else o.write("- Manual DKIM verification failed\n")
