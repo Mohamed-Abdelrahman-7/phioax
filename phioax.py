@@ -216,6 +216,13 @@ def main():
     argP.add_argument("-p","--path",required=True,type=str,help=">>> Mandatory: the path of the eml file")
     argP.add_argument("-d","--dump",nargs='?',const='.',help=">>> Optional: dumps the attachments to the path you specify [or to the current directory if not specified] for more manual analysis")
     args=argP.parse_args()
+    print("""
+                            ____ ___ ___    _    __  __
+                            |  _ \_ _/ _ \  / \   \ \/ /
+                            | |_) | | | | |/ _ \   \  / 
+                            |  __/| | |_| / ___ \  /  \ 
+                            |_|  |___\___/_/   \_\/_/\_\\
+          """)
     emlBinary,fileName,messageObject=eml_grabber(args.path)
     emlClean=quo_cleaner(messageObject)
     ips,urls,urlsFromSafeLink,urlsFromFireeyeProtect,urlsFromMimecastProtect=extract_ioa(emlClean)
@@ -233,7 +240,8 @@ def main():
             fromSender=messageObject.get_all("From")[0] if messageObject.get_all("From") !=None else ''
             fromDomain=re.search(r'(?<=@)[A-Za-z\-\.0-9]+',fromSender)[0]
             o.write("- The email is sent from: {} with a subject: {}\n".format(fromSender,messageObject.get("Subject")))
-            o.write("- Return Path is: {}\n".format(messageObject.get_all("Return-Path"))) if messageObject.get_all("Return-Path") !=None else o.write("- Return Path header doesn't exist\n")
+            o.write("- Return Path is: {}\n".format(messageObject.get_all("Return-Path"))) if messageObject.get_all("Return-Path") !=None else o.write("- Return-Path header doesn't exist\n")
+            o.write("- Reply-To is: {}\n".format(messageObject.get_all("Reply-To"))) if messageObject.get_all("Reply-To") !=None else o.write("- Reply-To header doesn't exist\n")
             try:
                 receivedHeaders=[x.replace('\n','') for x in messageObject.get_all("Received")]
                 if len(receivedHeaders) > 1:
