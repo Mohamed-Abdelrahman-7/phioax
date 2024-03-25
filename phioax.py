@@ -13,6 +13,7 @@ from datetime import timezone
 from email import parser
 import dns.resolver
 from textwrap import wrap
+import pytz
 
 # Define functions
 #function to load the eml from the path specified by the user 
@@ -76,7 +77,7 @@ def extract_ioa(emlClean):
     urlsFromMimecastProtect=[urllib.parse.unquote(x) for x in re.findall(r'protect.+?mimecast\.com.+?(https?(?:://|%3A%2F%2F)[^\s\"><]+)','\n'.join(urls))]
     return set(pubIps),set(urls),set(urlsFromSafeLinks),set(urlsFromFireeyeProtect),set(urlsFromMimecastProtect)
 #function to get a list of attachements and their corresponding file hashes [Optionally dump the attachments to your local storage]
-def hash_ex(eml,dumpPath):
+def hash_ex(eml,dumpPath) -> dict:
     """get a list of attachements and their corresponding file hashes [Optionally dump the attachments to your local storage] if argument d (-d) is set by the user while excuting the script"""
     nameHash={}
     msgObj=email.message_from_bytes(eml)
@@ -97,12 +98,14 @@ def hash_ex(eml,dumpPath):
 def datetimex(eml:str) -> tuple:
    """extracts all times found in the email and converts them to readable ISO formatted times, so the analyst can find any time anomalies
    returns: iso timestamps [list] and the time delta between earler and older timestamps obverved "string" """
-   isoDatetimes=[datetime.strptime(x,"%d %b %Y %H:%M:%S %z").isoformat() for x in re.findall(r'\d{1,2}\s\w{3}\s\d{4}\s(?:\d{1,2}:){2}\d{1,2}\s.\d{1,4}',eml)]
+   timestamps=[x[0] for x in re.findall(r'(\d{1,2}\s\w{3}\s\d{4}\s(?:\d{1,2}:){2}\d{1,2}(\s.\d{1,4}|\s\w{3}))',eml)]
+   isoDatetimes=[convert_to_isoformat(x) for x in timestamps]
    isoDatetimes=sorted(isoDatetimes,key=datetime.fromisoformat)
-   timeDiff="time deviation of observed timestamps is {} days and {} seconds\n".format((datetime.fromisoformat(isoDatetimes[-1])-datetime.fromisoformat(isoDatetimes[0])).days,\
-    (datetime.fromisoformat(isoDatetimes[-1])-datetime.fromisoformat(isoDatetimes[0])).seconds) 
+   timeDiff="time deviation of observed timestamps is {} days and {} seconds\n".format((earl_lat_diff:=(datetime.fromisoformat(isoDatetimes[-1])-datetime.fromisoformat(isoDatetimes[0]))).days,\
+    earl_lat_diff.seconds) 
    return isoDatetimes,timeDiff
-def ip_intel_vt(client,ip):
+
+def ip_intel_vt(client,ip)->tuple:
     """ a function that will take vt.Client object and ip (string) as a parmaters and perform IP reputation, reolution, SSL info analysis for this IP"""
     try:
         ipReport=client.get_object("/ip_addresses/{}".format(ip))
@@ -125,7 +128,7 @@ def ip_intel_vt(client,ip):
     except:
         pass
     return reputation,sslInfo,hosts
-def hash_intel_vt(client,hash):
+def hash_intel_vt(client,hash)->str:
     """take a vt.Client object and a filehash "string" and returns the last_analysis_stats for that hash"""
     parameters={'query':hash}
     filehashReport=""
@@ -140,7 +143,7 @@ def hash_intel_vt(client,hash):
     except Exception as e:
         filehashReport="an error {} occured while trying to query VT for the filehash !!".format(e)
     return filehashReport   
-def domain_intel_vt(client,hostname):
+def domain_intel_vt(client,hostname)->str:
     try:
         domainObject=client.get_object("/domains/{}".format(hostname))
         domainReport="VT analysis: last dns records found for the domain are: \n {} \nstats: It's reported as harmless by {}, malicious by {}, suspicious by {} and undected by {}\n\
@@ -211,6 +214,18 @@ def thread_analyze(index:str) ->tuple:
         return int(childNumber),threadCreationTime,childsTimeDelta      
     except:
         return None,None,None
+def convert_to_isoformat(timestamp:str)->datetime:
+    """takes a time stamp string and converts it using strptime method to the iso format datetime"""
+    try:
+        dt=datetime.strptime(timestamp, '%d %b %Y %H:%M:%S %z')
+    except ValueError:
+        try:
+            dt = datetime.strptime(timestamp, '%d %b %Y %H:%M:%S %Z')
+            dt=pytz.utc.localize(dt)
+        except ValueError:
+            return None
+    return dt.isoformat()
+
 def main():
     argP=argparse.ArgumentParser(description="This tool is developed to help SOC analysts extracting Indicator of Attack from a suspicious email to check them agianst  OSINT resources")
     argP.add_argument("-p","--path",required=True,type=str,help=">>> Mandatory: the path of the eml file")
@@ -240,12 +255,12 @@ def main():
             fromSender=messageObject.get_all("From")[0] if messageObject.get_all("From") !=None else ''
             fromDomain=re.search(r'(?<=@)[A-Za-z\-\.0-9]+',fromSender)[0]
             o.write("- The email is sent from: {} with a subject: {}\n".format(fromSender,messageObject.get("Subject")))
-            o.write("- Return Path is: {}\n".format(messageObject.get_all("Return-Path"))) if messageObject.get_all("Return-Path") !=None else o.write("- Return-Path header doesn't exist\n")
-            o.write("- Reply-To is: {}\n".format(messageObject.get_all("Reply-To"))) if messageObject.get_all("Reply-To") !=None else o.write("- Reply-To header doesn't exist\n")
+            o.write("- Return Path is: {}\n".format(returnPath)) if (returnPath:=messageObject.get_all("Return-Path")) !=None else o.write("- Return-Path header doesn't exist\n")
+            o.write("- Reply-To is: {}\n".format(replyTo)) if (replyTo:= messageObject.get_all("Reply-To")) !=None else o.write("- Reply-To header doesn't exist\n")
             try:
                 receivedHeaders=[x.replace('\n','') for x in messageObject.get_all("Received")]
                 if len(receivedHeaders) > 1:
-                    sortedcReceivedHeaders=sorted([x.replace('\r','') for x in receivedHeaders],key=lambda x:datetime.strptime(re.findall(r'\d{1,2}\s\w{3}\s\d{4}\s(?:\d{1,2}:){2}\d{1,2}\s.\d{1,4}',x)[0],"%d %b %Y %H:%M:%S %z").isoformat())
+                    sortedcReceivedHeaders=sorted([x.replace('\r','') for x in receivedHeaders],key=lambda x:convert_to_isoformat(re.search(r'\d{1,2}\s\w{3}\s\d{4}\s(?:\d{1,2}:){2}\d{1,2}(\s.\d{1,4}|\s\w{3})',x)[0]))
                 else:
                     sortedcReceivedHeaders=receivedHeaders
                 firsthops=[]
@@ -254,9 +269,13 @@ def main():
                     if any(j in i for j in ips):
                         break
                 o.write("- The first hop/s in the email flow (MTA the message started from) \n   ++++{}\n".format("\n   ++++".join(firsthops)))
-            except:
-                o.write("- No Received Headers are found \n")
-        
+            except Exception as e:
+                 o.write("an error {} occured while parsing the received headers \n".format(e))       
+            mailClient=[messageObject.get_all(x) for x in ["X-User-Agent","User-Agent","X-Mailer"]]
+            if any(mailClient):
+                o.write("\n- This email was sent by {} mail client (mail application)\n\n".format(list(filter(bool,mailClient))))
+            else:
+                o.write("- The mail client (mail application) that was used to send this email can't be identified!\n")
             authResult=messageObject.get("Authentication-Results")
             o.write("- Authentication Results header exists with the following results: \n  {}\n".format(authResult)) if authResult !=None else o.write("- Authentication Results header doesn't exist !\n")
             o.write("- Manual DKIM Verification pass\n") if dkim.verify(emlBinary) else o.write("- Manual DKIM verification failed\n")
@@ -269,7 +288,7 @@ def main():
             else:
                 o.write("- Couldn't get  Authorized MXs from SPF entry in  Domain DNS TXT record\n")
             o.write("- Getting MX record for the domain {}\n".format(fromDomain))
-            o.write("   "+"\n   ".join([str(x) for x in dns.resolver.resolve(fromDomain,"MX")]))
+            o.write("   "+"\n   ".join([str(x) for x in dns.resolver.resolve(fromDomain,"MX")])+"\n")
             o.write("- mail client IP address: {}\n".format(messageObject.get_all("X-Originating-IP")))         
             o.write("- Interesting Microsoft headers:\n\
     {}\n    {}\n    {}\n\n".format(*[x+': '+messageObject.get_all(x)[0] if messageObject.get_all(x) !=None else x+": doesn' exist" for x in ["x-ms-exchange-organization-originalclientipaddress","x-ms-exchange-organization-originalserveripaddress","X-MS-Has-Attach"]]))
@@ -332,7 +351,8 @@ def main():
             [o.write(url+'\n') for url in urlsFromFireeyeProtect]
             o.write('\n**************list of URLs extracted from mimecast protect links****************\n\n')
             [o.write(url+'\n') for url in urlsFromMimecastProtect]
-            o.write('\n*****************list of hostnems extracted*********************************\n\n')
+            o.write('\n*****************list of hostnames extracted*********************************\n\n')
+            hostNames.add(fromDomain)
             if vtClient :
                 for hostname in hostNames:
                     o.write('>>>'+hostname+'\n')
