@@ -1,4 +1,4 @@
-[![Python](https://img.shields.io/badge/Python-FFD43B?style=for-the-badge&logo=python&logoColor=blue)
+![Python](https://img.shields.io/badge/Python-FFD43B?style=for-the-badge&logo=python&logoColor=blue)
 [![Open Source Love](https://badges.frapsoft.com/os/v3/open-source.svg?v=103)](https://github.com/ellerbrock/open-source-badges/)
 # phioax
 If you would ask any security analyst or infosec engineer about phishing emails, he/she with no hesitation will tell you it's very common that phishing emails (especially the well deigned ones) do manage to evade email gateways and security controls, hence they usually get calls about suspicious emails received and asked to validate those emails.\
